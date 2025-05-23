@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import time
 import sys
@@ -9,6 +10,8 @@ import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import torch.utils.data
+import torchattacks
+import torch.nn.functional as F
 
 from sklearn.decomposition import PCA
 import numpy as np
@@ -102,6 +105,7 @@ parser.add_argument('--rp_out_channel', default=48, type=int, help='number of rp
 parser.add_argument('--num_classes', default=10, type=int, help='number of classes')
 
 args = parser.parse_args()
+logger = logging.getLogger(__name__)
 
 # Check the save_dir exists or not
 print ('save dir:', args.save_dir)
@@ -309,9 +313,13 @@ def main():
     print ('final:')
     torch.save(model.state_dict(), os.path.join(args.save_dir, 'train_eps' + str(train_eps) + 'psgd_final.pt'))
     if args.pgd50:
-        epoch_adversarial_PGD50(test_loader, model)
+        # epoch_adversarial_PGD50(test_loader, model)
+        atk = torchattacks.PGD(model, eps=8 / 255, alpha=2 / 255, steps=50, random_start=True)
+        evaluate_attack(model, test_loader, args, atk, 'pgd', logger)
     if args.autoattack:
-        AutoAttack(model, args, dataset=args.datasets)
+        # AutoAttack(model, args, dataset=args.datasets)
+        atk = torchattacks.AutoAttack(model, norm='Linf', eps=8 / 255, version='standard', n_classes=args.num_classes)
+        evaluate_attack(model, test_loader, args, atk, "autoattck", logger)
 
     print ('best:')
     model.load_state_dict(torch.load(os.path.join(args.save_dir, 'train_eps' + str(train_eps) + 'psgd_best.pt')))
@@ -559,6 +567,35 @@ def accuracy(output, target, topk=(1,)):
         correct_k = correct[:k].view(-1).float().sum(0)
         res.append(correct_k.mul_(100.0 / batch_size))
     return res
+
+def evaluate_attack(model, test_loader, args, atk, atk_name, logger):
+    test_loss = 0
+    test_acc = 0
+    n = 0
+    model.eval()
+
+    for i, (X, y) in enumerate(test_loader):
+        X, y = X.to('cuda'), y.to('cuda')
+
+        if args.rp:
+            # random select a path to attack
+            model.module.random_rp_matrix()
+
+        X_adv = atk(X, y)  # advtorch
+
+        if args.rp:
+            # random select a path to infer
+            model.module.random_rp_matrix()
+
+        with torch.no_grad():
+            output = model(X_adv)
+        loss = F.cross_entropy(output, y)
+        test_loss += loss.item() * y.size(0)
+        test_acc += (output.max(1)[1] == y).sum().item()
+        n += y.size(0)
+
+    pgd_acc = test_acc / n
+    logger.info('Attack_type: [{:s}] done, acc: {:.4f} \t'.format(atk_name, pgd_acc))
 
 if __name__ == '__main__':
     main()

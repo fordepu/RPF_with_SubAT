@@ -424,6 +424,8 @@ def AutoAttack(model, args, dataset='CIFAR10', norm='Linf', epsilon=8):
 
     # load attack    
     from autoattack import AutoAttack
+    if args.rp:
+        model.module.random_rp_matrix()
     adversary = AutoAttack(model, norm=norm, eps=epsilon, log_path=os.path.join(args.save_dir, 'log_file.txt'),
         version='standard')
 
