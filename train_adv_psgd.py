@@ -327,9 +327,13 @@ def main():
     print ('best adv acc on test dataset:', robust_acc)
 
     if args.pgd50:
-        epoch_adversarial_PGD50(test_loader, model)
+        # epoch_adversarial_PGD50(test_loader, model)
+        atk = torchattacks.PGD(model, eps=8 / 255, alpha=2 / 255, steps=50, random_start=True)
+        evaluate_attack(model, test_loader, args, atk, 'pgd', logger)
     if args.autoattack:
-        AutoAttack(model, args, dataset=args.datasets)
+        # AutoAttack(model, args, dataset=args.datasets)
+        atk = torchattacks.AutoAttack(model, norm='Linf', eps=8 / 255, version='standard', n_classes=args.num_classes)
+        evaluate_attack(model, test_loader, args, atk, "autoattck", logger)
     validate(test_loader, model, criterion)
 
 
